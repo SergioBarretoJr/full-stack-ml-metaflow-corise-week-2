@@ -32,7 +32,8 @@ class BaselineChallenge(FlowSpec):
         
         # load dataset packaged with the flow.
         # this technique is convenient when working with small datasets that need to move to remove tasks.
-        df = self.data
+        print(self.data)
+        df = pd.read_csv(self.data)
         print(self.data)
         # TODO: load the data. 
         # Look up a few lines to the IncludeFile('data', default='Womens Clothing E-Commerce Reviews.csv'). 
@@ -90,14 +91,14 @@ class BaselineChallenge(FlowSpec):
         for params in self.hyperparam_set:
             model = NbowModel(vocab_sz=734,l1=5e-5, l2=5e-4, dropout=0.2,learning_rate=0.01,epoch=20)
             model.fit(X=self.df['review'], y=self.df['label'])
-            acc = model.eval_acc(valdf['review'].values, valdf['label'])
-            rocauc = model.eval_rocauc(valdf['review'].values, valdf['label'])
+            acc = model.eval_acc(self.valdf['review'].values, self.valdf['label'])
+            rocauc = model.eval_rocauc(self.valdf['review'].values, self.valdf['label'])
             self.results.append(ModelResult(f"NbowModel - vocab_sz: {params['vocab_sz']}", params, pathspec, acc, rocauc))
 
         self.next(self.aggregate)
 
     @step
-    def aggregate(self):
+    def aggregate(self,inputs):
         self.next(self.end)
 
     @step
