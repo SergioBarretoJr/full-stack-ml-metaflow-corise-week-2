@@ -3,6 +3,7 @@
 from metaflow import FlowSpec, step, Flow, current, Parameter, IncludeFile, card, current
 from metaflow.cards import Table, Markdown, Artifact, Image
 import numpy as np 
+import io 
 from dataclasses import dataclass
 
 labeling_function = lambda x: 0 if int(x)<=4 else 1
@@ -32,9 +33,10 @@ class BaselineChallenge(FlowSpec):
         
         # load dataset packaged with the flow.
         # this technique is convenient when working with small datasets that need to move to remove tasks.
-        print(self.data)
-        df = pd.read_csv(self.data)
-        print(self.data)
+        df = pd.read_csv(
+            io.StringIO(self.data), 
+            index_col=0
+        )
         # TODO: load the data. 
         # Look up a few lines to the IncludeFile('data', default='Womens Clothing E-Commerce Reviews.csv'). 
         # You can find documentation on IncludeFile here: https://docs.metaflow.org/scaling/data#data-in-local-files
@@ -46,7 +48,7 @@ class BaselineChallenge(FlowSpec):
         df['review'] = df['review_text'].astype('str')
         _has_review_df = df[df['review_text'] != 'nan']
         reviews = _has_review_df['review_text']
-        labels = _has_review_df['rating'].apply(labeling_function, axis=1)
+        labels = _has_review_df['rating'].apply(labeling_function)
         self.df = pd.DataFrame({'label': labels, **_has_review_df})
 
         # split the data 80/20, or by using the flow's split-sz CLI argument
@@ -97,8 +99,61 @@ class BaselineChallenge(FlowSpec):
 
         self.next(self.aggregate)
 
+    def add_one(self, rows, result, df):
+        "A helper function to load results."
+        rows.append([
+            Markdown(result.name),
+            Artifact(result.params),
+            Artifact(result.pathspec),
+            Artifact(result.acc),
+            Artifact(result.rocauc)
+        ])
+        df['name'].append(result.name)
+        df['accuracy'].append(result.acc)
+        return rows, df
+
+    @card(type='corise')  # TODO: Set your card type to "corise". 
+            # I wonder what other card types there are?
+            # https://docs.metaflow.org/metaflow/visualizing-results
+            # https://github.com/outerbounds/metaflow-card-altair/blob/main/altairflow.py
     @step
-    def aggregate(self,inputs):
+    def aggregate(self, inputs):
+
+        import seaborn as sns
+        import matplotlib.pyplot as plt
+        from matplotlib import rcParams 
+        rcParams.update({'figure.autolayout': True})
+
+        rows = []
+        violin_plot_df = {'name': [], 'accuracy': []}
+        for task in inputs:
+            if task._name == "model": 
+                for result in task.results:
+                    print(result)
+                    rows, violin_plot_df = self.add_one(rows, result, violin_plot_df)
+            elif task._name == "baseline":
+                print(task.result)
+                rows, violin_plot_df = self.add_one(rows, task.result, violin_plot_df)
+            else:
+                raise ValueError("Unknown task._name type. Cannot parse results.")
+            
+        current.card.append(Markdown("# All models from this flow run"))
+
+        # TODO: Add a Table of the results to your card! 
+        current.card.append(
+            Table(
+                rows, # TODO: What goes here to populate the Table in the card? 
+                headers=["Model name", "Params", "Task pathspec", "Accuracy", "ROCAUC"]
+            )
+        )
+        
+        fig, ax = plt.subplots(1,1)
+        plt.xticks(rotation=40)
+        sns.violinplot(data=violin_plot_df, x="name", y="accuracy", ax=ax)
+        
+        # TODO: Append the matplotlib fig to the card
+        # Docs: https://docs.metaflow.org/metaflow/visualizing-results/easy-custom-reports-with-card-components#showing-plots
+        current.card.append(Image.from_matplotlib(fig))
         self.next(self.end)
 
     @step
